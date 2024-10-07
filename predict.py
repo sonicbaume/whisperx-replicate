@@ -11,6 +11,7 @@ import whisperx
 import tempfile
 import time
 import torch
+import json
 
 compute_type = "float16"  # change to "int8" if low on GPU mem (may reduce accuracy)
 device = "cuda"
@@ -87,7 +88,11 @@ class Predictor(BasePredictor):
                 default=None),
             debug: bool = Input(
                 description="Print out compute/inference times and memory usage information",
-                default=False)
+                default=False),
+            transcript: str = Input(
+                description="Use an existing JSON transcript instead of generating one",
+                default=None
+            )
     ) -> Output:
         with torch.inference_mode():
             asr_options = {
@@ -100,9 +105,8 @@ class Predictor(BasePredictor):
                 "vad_offset": vad_offset
             }
 
-            audio_duration = get_audio_duration(audio_file)
-
             if language is None and language_detection_min_prob > 0 and audio_duration > 30000:
+                audio_duration = get_audio_duration(audio_file)
                 segments_duration_ms = 30000
 
                 language_detection_max_tries = min(
@@ -127,35 +131,46 @@ class Predictor(BasePredictor):
 
                 language = detected_language_details["language"]
 
-            start_time = time.time_ns() / 1e6
+            if transcript is None:
+                start_time = time.time_ns() / 1e6
 
-            model = whisperx.load_model(whisper_arch, device, compute_type=compute_type, language=language,
-                                        asr_options=asr_options, vad_options=vad_options)
+                model = whisperx.load_model(whisper_arch, device, compute_type=compute_type, language=language,
+                                            asr_options=asr_options, vad_options=vad_options)
 
-            if debug:
-                elapsed_time = time.time_ns() / 1e6 - start_time
-                print(f"Duration to load model: {elapsed_time:.2f} ms")
+                if debug:
+                    elapsed_time = time.time_ns() / 1e6 - start_time
+                    print(f"Duration to load model: {elapsed_time:.2f} ms")
 
-            start_time = time.time_ns() / 1e6
+                start_time = time.time_ns() / 1e6
 
-            audio = whisperx.load_audio(audio_file)
+                audio = whisperx.load_audio(audio_file)
 
-            if debug:
-                elapsed_time = time.time_ns() / 1e6 - start_time
-                print(f"Duration to load audio: {elapsed_time:.2f} ms")
+                if debug:
+                    elapsed_time = time.time_ns() / 1e6 - start_time
+                    print(f"Duration to load audio: {elapsed_time:.2f} ms")
 
-            start_time = time.time_ns() / 1e6
+                start_time = time.time_ns() / 1e6
 
-            result = model.transcribe(audio, batch_size=batch_size)
-            detected_language = result["language"]
+                result = model.transcribe(audio, batch_size=batch_size)
+                detected_language = result["language"]
 
-            if debug:
-                elapsed_time = time.time_ns() / 1e6 - start_time
-                print(f"Duration to transcribe: {elapsed_time:.2f} ms")
+                if debug:
+                    elapsed_time = time.time_ns() / 1e6 - start_time
+                    print(f"Duration to transcribe: {elapsed_time:.2f} ms")
 
-            gc.collect()
-            torch.cuda.empty_cache()
-            del model
+                gc.collect()
+                torch.cuda.empty_cache()
+                del model
+            
+            else:
+                result = json.loads(transcript)
+                if not hasattr(result, "segments"): print("No segments attribute found in transcript.")
+                if not hasattr(result["segments"][0], "text"): print("Could not find text attribute in segments array.")
+                if not hasattr(result["segments"][0], "start"): print("Could not find start attribute in segments array.")
+                if not hasattr(result["segments"][0], "end"): print("Could not find end attribute in segments array.")
+                
+                if hasattr(result, "language"): detected_language = result["language"]
+                else: result["language"] = language
 
             if align_output:
                 if detected_language in whisperx.alignment.DEFAULT_ALIGN_MODELS_TORCH or detected_language in whisperx.alignment.DEFAULT_ALIGN_MODELS_HF:
