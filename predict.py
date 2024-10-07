@@ -163,14 +163,17 @@ class Predictor(BasePredictor):
                 del model
             
             else:
+                audio = whisperx.load_audio(audio_file)
                 result = json.loads(transcript)
-                if not hasattr(result, "segments"): print("No segments attribute found in transcript.")
-                if not hasattr(result["segments"][0], "text"): print("Could not find text attribute in segments array.")
-                if not hasattr(result["segments"][0], "start"): print("Could not find start attribute in segments array.")
-                if not hasattr(result["segments"][0], "end"): print("Could not find end attribute in segments array.")
+                if "segments" not in result: print("No segments attribute found in transcript.")
+                if "text" not in result["segments"][0]: print("Could not find text attribute in segments array.")
+                if "start" not in result["segments"][0]: print("Could not find start attribute in segments array.")
+                if "end" not in result["segments"][0]: print("Could not find end attribute in segments array.")
                 
                 if hasattr(result, "language"): detected_language = result["language"]
-                else: result["language"] = language
+                else:
+                    result["language"] = language
+                    detected_language = language
 
             if align_output:
                 if detected_language in whisperx.alignment.DEFAULT_ALIGN_MODELS_TORCH or detected_language in whisperx.alignment.DEFAULT_ALIGN_MODELS_HF:
